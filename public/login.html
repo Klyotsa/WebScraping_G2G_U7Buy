@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G2G Login - Автоматический вход</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 450px;
+            width: 100%;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            color: #333;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        input.error {
+            border-color: #e74c3c;
+        }
+
+        .error-message {
+            color: #e74c3c;
+            font-size: 13px;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .success-message {
+            color: #27ae60;
+            font-size: 13px;
+            margin-top: 5px;
+            display: none;
+            text-align: center;
+        }
+
+        .success-message.show {
+            display: block;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 30px;
+            gap: 10px;
+        }
+
+        .step {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #e0e0e0;
+            transition: all 0.3s ease;
+        }
+
+        .step.active {
+            background: #667eea;
+            width: 30px;
+            border-radius: 5px;
+        }
+
+        .step.completed {
+            background: #27ae60;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 G2G Автоматический вход</h1>
+        <p class="subtitle">Введите данные для входа на хостинг</p>
+
+        <div class="step-indicator">
+            <div class="step active" id="step1"></div>
+            <div class="step" id="step2"></div>
+        </div>
+
+        <div id="loginForm">
+            <div class="info-box">
+                📋 Введите логин и пароль от вашего аккаунта G2G. После нажатия кнопки "Войти" данные будут отправлены на сервер для автоматического входа.
+            </div>
+
+            <div class="form-group">
+                <label for="username">E-mail или номер телефона</label>
+                <input type="text" id="username" placeholder="Введите логин" autocomplete="username">
+                <div class="error-message" id="usernameError"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Пароль</label>
+                <input type="password" id="password" placeholder="Введите пароль" autocomplete="current-password">
+                <div class="error-message" id="passwordError"></div>
+            </div>
+
+            <button id="loginBtn" onclick="handleLogin()">Войти</button>
+            <div class="error-message" id="loginError"></div>
+            <div class="success-message" id="loginSuccess"></div>
+        </div>
+
+        <div id="twoFactorForm" class="hidden">
+            <div class="info-box">
+                🔐 Требуется двухфакторная аутентификация (MFA).<br>
+                Введите 6-значный код из вашего приложения аутентификатора (Google Authenticator или аналогичное).
+            </div>
+
+            <div class="form-group">
+                <label for="twoFactorCode">2FA Код</label>
+                <input type="text" id="twoFactorCode" placeholder="Введите 6-значный код" maxlength="6" pattern="[0-9]{6}">
+                <div class="error-message" id="twoFactorError"></div>
+            </div>
+
+            <button id="twoFactorBtn" onclick="handle2FA()">Подтвердить</button>
+            <div class="error-message" id="twoFactorSubmitError"></div>
+            <div class="success-message" id="twoFactorSuccess"></div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 15px; color: #666;">Обработка...</p>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        // Проверка статуса входа при загрузке страницы
+        async function checkLoginStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/g2g/check-login`);
+                const data = await response.json();
+                
+                if (data.isLoggedIn) {
+                    // Пользователь уже залогинен
+                    document.getElementById('loginForm').innerHTML = `
+                        <div class="info-box" style="background: #d4edda; border-left-color: #28a745;">
+                            ✅ <strong>Вы уже авторизованы на сервере!</strong><br>
+                            Браузер на хостинге имеет активную сессию G2G.
+                        </div>
+                        <div class="info-box" style="background: #e7f3ff; border-left-color: #2196F3; margin-top: 20px;">
+                            ℹ️ <strong>Вход выполнен успешно!</strong><br>
+                            Скрапер готов к работе.
+                        </div>
+                    `;
+                    document.getElementById('step1').classList.add('completed');
+                    document.getElementById('step2').classList.add('completed');
+                }
+            } catch (error) {
+                console.log('Проверка статуса входа:', error.message);
+                // Игнорируем ошибки проверки, продолжаем показывать форму входа
+            }
+        }
+
+        // Проверяем статус при загрузке страницы
+        window.addEventListener('DOMContentLoaded', checkLoginStatus);
+
+        function showError(elementId, message) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.classList.add('show');
+        }
+
+        function hideError(elementId) {
+            const element = document.getElementById(elementId);
+            element.classList.remove('show');
+        }
+
+        function showSuccess(elementId, message) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.classList.add('show');
+        }
+
+        function setLoading(loading) {
+            document.getElementById('loading').classList.toggle('show', loading);
+            document.getElementById('loginBtn').disabled = loading;
+            document.getElementById('twoFactorBtn').disabled = loading;
+        }
+
+        async function handleLogin() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            // Очистка предыдущих ошибок
+            hideError('usernameError');
+            hideError('passwordError');
+            hideError('loginError');
+            hideError('loginSuccess');
+
+            // Валидация
+            if (!username) {
+                showError('usernameError', 'Поле обязательно для заполнения');
+                document.getElementById('username').classList.add('error');
+                return;
+            }
+            document.getElementById('username').classList.remove('error');
+
+            if (!password) {
+                showError('passwordError', 'Поле обязательно для заполнения');
+                document.getElementById('password').classList.add('error');
+                return;
+            }
+            document.getElementById('password').classList.remove('error');
+
+            setLoading(true);
+
+            try {
+                const response = await fetch(`${API_BASE}/g2g/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    if (data.requires2FA) {
+                        // Переход к форме 2FA
+                        document.getElementById('loginForm').classList.add('hidden');
+                        document.getElementById('twoFactorForm').classList.remove('hidden');
+                        document.getElementById('step1').classList.add('completed');
+                        document.getElementById('step2').classList.add('active');
+                        document.getElementById('twoFactorCode').focus();
+                    } else {
+                        showSuccess('loginSuccess', '✅ Вход выполнен успешно!');
+                        document.getElementById('step2').classList.add('completed');
+                    }
+                } else {
+                    showError('loginError', data.message || 'Ошибка входа. Проверьте логин и пароль.');
+                }
+            } catch (error) {
+                showError('loginError', 'Ошибка соединения с сервером: ' + error.message);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function handle2FA() {
+            const code = document.getElementById('twoFactorCode').value.trim();
+
+            hideError('twoFactorError');
+            hideError('twoFactorSubmitError');
+            hideError('twoFactorSuccess');
+
+            if (!code || code.length !== 6) {
+                showError('twoFactorError', 'Введите 6-значный код');
+                document.getElementById('twoFactorCode').classList.add('error');
+                return;
+            }
+            document.getElementById('twoFactorCode').classList.remove('error');
+
+            setLoading(true);
+
+            try {
+                const response = await fetch(`${API_BASE}/g2g/2fa`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ code })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    showSuccess('twoFactorSuccess', '✅ Вход выполнен успешно!');
+                    document.getElementById('step2').classList.add('completed');
+                } else {
+                    showError('twoFactorSubmitError', data.message || 'Неверный код. Попробуйте снова.');
+                    document.getElementById('twoFactorCode').value = '';
+                    document.getElementById('twoFactorCode').focus();
+                }
+            } catch (error) {
+                showError('twoFactorSubmitError', 'Ошибка соединения с сервером: ' + error.message);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // Обработка Enter для форм
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handleLogin();
+            }
+        });
+
+        document.getElementById('twoFactorCode').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handle2FA();
+            }
+        });
+
+        // Автофокус на первое поле
+        document.getElementById('username').focus();
+    </script>
+</body>
+</html>
+

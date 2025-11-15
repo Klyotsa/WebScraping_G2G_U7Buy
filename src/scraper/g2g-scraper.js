@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const path = require('path');
+const fs = require('fs').promises;
 
 /**
  * G2G Scraper для парсинга заказов и создания карточек в Trello
@@ -12,9 +13,66 @@ class G2GScraper {
         this.userDataDir = process.env.USER_DATA_DIR || path.join(__dirname, '../../.browser-data');
         
             // URLs
-        this.preparingUrl = 'https://www.g2g.com/order/sellOrder?status=5';
-        this.deliveringUrl = 'https://www.g2g.com/order/sellOrder?status=1';
+        this.newOrderUrl = 'https://www.g2g.com/order/sellOrder?status=5'; // New order
+        this.preparingUrl = 'https://www.g2g.com/order/sellOrder?status=6'; // Preparing
+        this.deliveringUrl = 'https://www.g2g.com/order/sellOrder?status=1'; // Delivering
+        this.deliveredUrl = 'https://www.g2g.com/order/sellOrder?status=2'; // Delivered
+        this.completedUrl = 'https://www.g2g.com/order/sellOrder?status=3'; // Completed
+        this.cancelledUrl = 'https://www.g2g.com/order/sellOrder?status=0'; // Cancelled
         this.orderUrlTemplate = 'https://www.g2g.com/order/sellOrder/order?oid=';
+        
+        // Файл для хранения обработанных заказов
+        this.processedOrdersFile = path.join(__dirname, '../../processed-orders.json');
+        this.processedOrders = new Set();
+    }
+
+    /**
+     * Загружает список обработанных заказов из файла
+     */
+    async loadProcessedOrders() {
+        try {
+            const data = await fs.readFile(this.processedOrdersFile, 'utf8');
+            const orders = JSON.parse(data);
+            this.processedOrders = new Set(orders);
+            console.log(`📋 Загружено ${this.processedOrders.size} обработанных заказов`);
+        } catch (error) {
+            if (error.code === 'ENOENT') {
+                // Файл не существует, создадим его позже
+                this.processedOrders = new Set();
+                console.log('📋 Файл обработанных заказов не найден, начинаем с пустого списка');
+            } else {
+                console.error('❌ Ошибка загрузки обработанных заказов:', error.message);
+                this.processedOrders = new Set();
+            }
+        }
+    }
+
+    /**
+     * Сохраняет список обработанных заказов в файл
+     */
+    async saveProcessedOrders() {
+        try {
+            const ordersArray = Array.from(this.processedOrders);
+            await fs.writeFile(this.processedOrdersFile, JSON.stringify(ordersArray, null, 2), 'utf8');
+            console.log(`💾 Сохранено ${ordersArray.length} обработанных заказов`);
+        } catch (error) {
+            console.error('❌ Ошибка сохранения обработанных заказов:', error.message);
+        }
+    }
+
+    /**
+     * Добавляет заказ в список обработанных
+     */
+    async markOrderAsProcessed(orderId) {
+        this.processedOrders.add(orderId.toString());
+        await this.saveProcessedOrders();
+    }
+
+    /**
+     * Проверяет, был ли заказ уже обработан
+     */
+    isOrderProcessed(orderId) {
+        return this.processedOrders.has(orderId.toString());
     }
 
     /**
@@ -109,22 +167,23 @@ class G2GScraper {
     }
 
     /**
-     * Получает список заказов со страницы PREPARING (status=5)
-     * и переводит их в DELIVERING
+     * Получает список заказов со страницы NEW ORDER (status=5)
+     * и переводит их в PREPARING, затем в DELIVERING
+     * Обрабатывает только новые заказы, которые еще не были обработаны
      */
-    async processPreparingOrders() {
+    async processNewOrders() {
             await this.init();
 
         try {
-            console.log('📋 Переход на страницу PREPARING заказов...');
-            await this.page.goto(this.preparingUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            console.log('📋 Переход на страницу NEW ORDER заказов...');
+            await this.page.goto(this.newOrderUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
             await this.page.waitForTimeout(3000);
-
+            
             // Ждем загрузки таблицы
             try {
                 await this.page.waitForSelector('table.sales-history__table', { timeout: 10000 });
                 console.log('✅ Таблица загружена');
-            } catch (error) {
+                    } catch (error) {
                 console.log('⚠️ Таблица не найдена, возможно заказов нет');
                 return [];
             }
@@ -155,86 +214,40 @@ class G2GScraper {
                 return orderList;
             });
 
-            console.log(`📊 Найдено PREPARING заказов: ${orders.length}`);
+            console.log(`📊 Найдено NEW ORDER заказов: ${orders.length}`);
 
-            // Обрабатываем каждый заказ - переводим в DELIVERING
-            for (const order of orders) {
+            // Фильтруем только новые заказы (которые еще не были обработаны)
+            const newOrders = orders.filter(order => !this.isOrderProcessed(order.orderId));
+            console.log(`🆕 Новых заказов для обработки: ${newOrders.length}`);
+
+            // Обрабатываем каждый новый заказ - переводим в PREPARING, затем в DELIVERING
+            for (const order of newOrders) {
                 try {
-                    console.log(`🔄 Обработка заказа №${order.orderId} - перевод в DELIVERING...`);
-                    
-                    await this.page.goto(order.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-                await this.page.waitForTimeout(2000);
-
-                    // Ищем кнопку для перевода в DELIVERING и нажимаем 2 раза
-                    // Сначала ищем кнопку "Start Delivery" или "Confirm Delivered"
-                    const buttonClicked = await this.page.evaluate(() => {
-                        // Ищем кнопку по тексту или классу
-                        const buttons = Array.from(document.querySelectorAll('a.list-action__btn-default, button, a[onclick*="deliver"]'));
-                        const deliveryButton = buttons.find(btn => {
-                            const text = btn.textContent.toLowerCase().trim();
-                            const onclick = btn.getAttribute('onclick') || '';
-                            return text.includes('start delivery') || 
-                                   text.includes('confirm deliver') || 
-                                   onclick.includes('deliver') ||
-                                   onclick.includes('confirm_deliver');
-                        });
-
-                        if (deliveryButton) {
-                            deliveryButton.click();
-                                    return true;
-                            }
-                            return false;
-                        });
-                        
-                    if (buttonClicked) {
-                        await this.page.waitForTimeout(1500);
-                        // Второй клик - подтверждение
-                        const secondClick = await this.page.evaluate(() => {
-                            const buttons = Array.from(document.querySelectorAll('a.list-action__btn-default, button, a[onclick*="deliver"], a[onclick*="confirm"]'));
-                            const confirmButton = buttons.find(btn => {
-                            const text = btn.textContent.toLowerCase().trim();
-                                const onclick = btn.getAttribute('onclick') || '';
-                                return text.includes('confirm') || 
-                                       onclick.includes('confirm_deliver') ||
-                                       onclick.includes('confirm_deliver');
-                            });
-                            if (confirmButton) {
-                                confirmButton.click();
-                            return true;
-                        }
-                        return false;
-                    });
-                        await this.page.waitForTimeout(2000);
-                        if (secondClick) {
-                            console.log(`✅ Заказ №${order.orderId} переведен в DELIVERING (2 клика выполнено)`);
-            } else {
-                            console.log(`⚠️ Заказ №${order.orderId} - первый клик выполнен, второй не найден`);
-                        }
-                } else {
-                        console.log(`⚠️ Кнопка для заказа №${order.orderId} не найдена`);
-                    }
-            
+                    await this.processNewOrderToDelivering(order);
+                    // Помечаем заказ как обработанный
+                    await this.markOrderAsProcessed(order.orderId);
         } catch (error) {
-                    console.error(`❌ Ошибка обработки заказа №${order.orderId}:`, error.message);
+                    console.error(`❌ Ошибка обработки New Order заказа №${order.orderId}:`, error.message);
                 }
             }
-
-                return orders;
-        } catch (error) {
-            console.error('❌ Ошибка обработки PREPARING заказов:', error.message);
+            
+            return newOrders;
+                    } catch (error) {
+            console.error('❌ Ошибка обработки NEW ORDER заказов:', error.message);
             throw error;
         }
     }
 
     /**
-     * Получает список заказов со страницы DELIVERING (status=1)
+     * Получает список заказов со страницы PREPARING (status=6)
+     * и переводит их в DELIVERING
      */
-    async getDeliveringOrders() {
+    async processPreparingOrders() {
         await this.init();
 
         try {
-            console.log('📋 Переход на страницу DELIVERING заказов...');
-            await this.page.goto(this.deliveringUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            console.log('📋 Переход на страницу PREPARING заказов...');
+            await this.page.goto(this.preparingUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
             await this.page.waitForTimeout(3000);
             
             // Ждем загрузки таблицы
@@ -246,29 +259,23 @@ class G2GScraper {
                 return [];
             }
 
-            // Получаем список заказов с датами
+            // Получаем список заказов
             const orders = await this.page.evaluate(() => {
                 const orderList = [];
                 const rows = document.querySelectorAll('table.sales-history__table tbody tr');
                 
                 rows.forEach((row) => {
-                        const orderLink = row.querySelector('a.sales-history__product-id');
-                        if (orderLink) {
+                    const orderLink = row.querySelector('a.sales-history__product-id');
+                    if (orderLink) {
                         const orderText = orderLink.textContent || '';
                         const orderMatch = orderText.match(/Sold order №(\d+)/);
                     if (orderMatch) {
                         const orderId = orderMatch[1];
                             const dataUrl = row.querySelector('.clickable-row')?.getAttribute('data-url');
-                            
-                            // Извлекаем дату
-                            const dateCell = row.querySelector('td:first-child');
-                            const dateText = dateCell ? dateCell.textContent.trim() : '';
-                            
                             if (dataUrl) {
                                 orderList.push({
-                                orderId: orderId,
-                                    url: dataUrl,
-                                    date: dateText
+                            orderId: orderId,
+                                    url: dataUrl
                                 });
                             }
                         }
@@ -278,19 +285,434 @@ class G2GScraper {
                 return orderList;
             });
 
-            // Сортируем по дате (последний первым)
-            orders.sort((a, b) => {
-                const dateA = new Date(a.date);
-                const dateB = new Date(b.date);
-                return dateB - dateA;
-            });
+            console.log(`📊 Найдено PREPARING заказов: ${orders.length}`);
 
-            console.log(`📊 Найдено DELIVERING заказов: ${orders.length}`);
-            return orders;
+            // Обрабатываем каждый Preparing заказ - переводим в DELIVERING
+            for (const order of orders) {
+                try {
+                    await this.processPreparingToDelivering(order);
                 } catch (error) {
-            console.error('❌ Ошибка получения DELIVERING заказов:', error.message);
+                    console.error(`❌ Ошибка обработки Preparing заказа №${order.orderId}:`, error.message);
+                }
+            }
+            
+                return orders;
+        } catch (error) {
+            console.error('❌ Ошибка обработки PREPARING заказов:', error.message);
             throw error;
         }
+    }
+
+    /**
+     * Обрабатывает New Order заказ - переводит в Preparing, затем в Delivering
+     */
+    async processNewOrderToDelivering(order) {
+        try {
+            console.log(`🔄 Обработка New Order заказа №${order.orderId} - перевод в DELIVERING...`);
+            
+            await this.page.goto(order.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await this.page.waitForTimeout(3000);
+            
+            // Ждем загрузки контента страницы
+            try {
+                await this.page.waitForSelector('.trade__order-status, .trade__content-dynamic, .rate, .progress_gr', { timeout: 10000 });
+            } catch (e) {
+                console.log(`⚠️ Элементы страницы заказа №${order.orderId} не загрузились полностью`);
+            }
+
+            // Проверяем текущий статус заказа
+            let currentStatus = null;
+            try {
+                currentStatus = await this.page.evaluate(() => {
+                    const statusElement = document.querySelector('.status--seller--4, .status--seller--1, .status--seller--2, .status--seller--5');
+                    if (statusElement) {
+                        return statusElement.textContent.trim();
+                    }
+                    return null;
+                });
+            } catch (e) {
+                console.log(`⚠️ Не удалось определить статус заказа №${order.orderId}`);
+            }
+            
+            console.log(`📋 Текущий статус заказа №${order.orderId}: ${currentStatus || 'не определен'}`);
+
+            // Если статус уже "Delivering" или другой финальный, пропускаем
+            if (currentStatus && (currentStatus.includes('Delivering') || currentStatus.includes('Delivered') || currentStatus.includes('Completed'))) {
+                console.log(`✅ Заказ №${order.orderId} уже в статусе ${currentStatus}, пропускаем`);
+                return;
+            }
+
+            // Шаг 1: Если статус "New order", нажимаем "View Delivery Details"
+            if (currentStatus && currentStatus.includes('New order')) {
+                console.log(`📋 Заказ №${order.orderId} в статусе "New order", нажимаем "View Delivery Details"...`);
+                
+                let buttonClicked = false;
+                const maxRetries = 3;
+                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                    try {
+                        await this.page.waitForTimeout(1000);
+                        
+                        buttonClicked = await this.page.evaluate(() => {
+                            const viewDetailsButtons = Array.from(document.querySelectorAll('a.progress_gr, a[onclick*="seller_view"], .rate__btns-item a'));
+                            const viewDetailsButton = viewDetailsButtons.find(btn => {
+                                const text = btn.textContent.toLowerCase().trim();
+                                return text.includes('view delivery details');
+                            });
+                            
+                            if (viewDetailsButton) {
+                                viewDetailsButton.click();
+                                    return true;
+                            }
+                            return false;
+                        });
+                        
+                        if (buttonClicked) {
+                                    break;
+                                }
+                    } catch (e) {
+                        if (e.message.includes('Navigating frame was detached') || e.message.includes('Execution context was destroyed')) {
+                            console.log(`⚠️ Страница перезагрузилась при попытке ${attempt}, повторяем...`);
+                            if (attempt < maxRetries) {
+                                await this.page.goto(order.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                                await this.page.waitForTimeout(2000);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                
+                if (buttonClicked) {
+            await this.page.waitForTimeout(3000);
+                    console.log(`✅ Заказ №${order.orderId} - нажата кнопка "View Delivery Details" (New order -> Preparing)`);
+                    
+                    // Ждем изменения статуса на "Preparing"
+                    let statusChanged = false;
+                    for (let i = 0; i < 10; i++) {
+                        await this.page.waitForTimeout(1000);
+                        const newStatus = await this.page.evaluate(() => {
+                            const statusElement = document.querySelector('.status--seller--4, .status--seller--1, .status--seller--2, .status--seller--6');
+                            if (statusElement) {
+                                return statusElement.textContent.trim();
+                }
+                return null;
+            });
+            
+                        if (newStatus && (newStatus.includes('Preparing') || newStatus.includes('Delivering'))) {
+                            statusChanged = true;
+                            console.log(`✅ Статус заказа №${order.orderId} изменился на "${newStatus}"`);
+                            break;
+                        }
+                    }
+                    
+                    if (!statusChanged) {
+                        console.log(`⚠️ Статус заказа №${order.orderId} не изменился на "Preparing"`);
+                    }
+                        } else {
+                    console.log(`⚠️ Кнопка "View Delivery Details" для заказа №${order.orderId} не найдена`);
+                }
+            }
+
+            // Шаг 2: Если статус "Preparing", нажимаем "Start Trading" для перевода в "Delivering"
+            // (или если кнопка "View Delivery Details" не была найдена, пробуем найти "Start Trading")
+            await this.page.waitForTimeout(2000);
+
+            let currentStatusAfter = null;
+            try {
+                currentStatusAfter = await this.page.evaluate(() => {
+                    const statusElement = document.querySelector('.status--seller--4, .status--seller--1, .status--seller--2, .status--seller--6');
+                    if (statusElement) {
+                        return statusElement.textContent.trim();
+                    }
+                    return null;
+                });
+            } catch (e) {
+                // Игнорируем ошибку
+            }
+
+            if (currentStatusAfter && (currentStatusAfter.includes('Preparing') || !currentStatusAfter.includes('Delivering'))) {
+                // Ищем и нажимаем кнопку "Start Trading"
+                let buttonClicked = false;
+                const maxRetries = 3;
+                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                    try {
+                        await this.page.waitForTimeout(1000);
+                        
+                        buttonClicked = await this.page.evaluate(() => {
+                            // Ищем кнопку "Start Trading" с onclick="javascript:seller_acknowledge(...)"
+                            const startTradingButtons = Array.from(document.querySelectorAll('a.progress_gr, a[onclick*="seller_acknowledge"], .rate__btns-item a'));
+                            const startTradingButton = startTradingButtons.find(btn => {
+                                const text = btn.textContent.toLowerCase().trim();
+                                const onclick = btn.getAttribute('onclick') || '';
+                                return (text.includes('start trading') || onclick.includes('seller_acknowledge'));
+                            });
+                            
+                            if (startTradingButton) {
+                                startTradingButton.click();
+                                return true;
+                            }
+                            
+                            // Если не нашли "Start Trading", ищем другие кнопки доставки
+                            const buttons = Array.from(document.querySelectorAll('a.list-action__btn-default, button, a[onclick*="deliver"], a[onclick*="confirm"]'));
+                            const deliverButton = buttons.find(btn => {
+                                const text = btn.textContent.toLowerCase().trim();
+                                const onclick = btn.getAttribute('onclick') || '';
+                                return text.includes('deliver') || 
+                                       text.includes('start delivery') ||
+                                       text.includes('confirm deliver') ||
+                                       onclick.includes('deliver') ||
+                                       onclick.includes('confirm_deliver');
+                            });
+                            if (deliverButton) {
+                                deliverButton.click();
+                                return true;
+                            }
+                            return false;
+                        });
+                        
+                        if (buttonClicked) {
+                    break;
+                        }
+                    } catch (e) {
+                        if (e.message.includes('Navigating frame was detached') || e.message.includes('Execution context was destroyed')) {
+                            console.log(`⚠️ Страница перезагрузилась при попытке ${attempt}, повторяем...`);
+                            if (attempt < maxRetries) {
+                                await this.page.goto(order.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                                await this.page.waitForTimeout(2000);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                
+                if (buttonClicked) {
+                    await this.page.waitForTimeout(2000);
+                    console.log(`✅ Заказ №${order.orderId} - нажата кнопка "Start Trading" (Preparing -> Delivering)`);
+                } else {
+                    console.log(`⚠️ Кнопка "Start Trading" для заказа №${order.orderId} не найдена`);
+                    console.log(`   💡 Возможно заказ уже в другом статусе или требует особой обработки`);
+                }
+            }
+                } catch (error) {
+            console.error(`❌ Ошибка обработки New Order заказа №${order.orderId}:`, error.message);
+        }
+    }
+
+    /**
+     * Обрабатывает Preparing заказ - переводит в Delivering
+     */
+    async processPreparingToDelivering(order) {
+        try {
+            console.log(`🔄 Обработка Preparing заказа №${order.orderId} - перевод в DELIVERING...`);
+            
+            await this.page.goto(order.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await this.page.waitForTimeout(3000);
+            
+            // Ждем загрузки контента страницы
+            try {
+                await this.page.waitForSelector('.trade__order-status, .trade__content-dynamic, .rate, .progress_gr', { timeout: 10000 });
+                    } catch (e) {
+                console.log(`⚠️ Элементы страницы заказа №${order.orderId} не загрузились полностью`);
+            }
+
+            // Проверяем текущий статус заказа
+            let currentStatus = null;
+            try {
+                currentStatus = await this.page.evaluate(() => {
+                    const statusElement = document.querySelector('.status--seller--4, .status--seller--1, .status--seller--2');
+                    if (statusElement) {
+                        return statusElement.textContent.trim();
+                    }
+                    return null;
+                });
+            } catch (e) {
+                console.log(`⚠️ Не удалось определить статус заказа №${order.orderId}`);
+            }
+            
+            console.log(`📋 Текущий статус заказа №${order.orderId}: ${currentStatus || 'не определен'}`);
+
+            // Если статус уже "Delivering" или другой финальный, пропускаем
+            if (currentStatus && (currentStatus.includes('Delivering') || currentStatus.includes('Delivered') || currentStatus.includes('Completed'))) {
+                console.log(`✅ Заказ №${order.orderId} уже в статусе ${currentStatus}, пропускаем`);
+                                return;
+                            }
+                            
+            // Ищем и нажимаем кнопку "Start Trading" (с повторными попытками)
+            let buttonClicked = false;
+            const maxRetries = 3;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    // Ждем стабилизации страницы перед поиском кнопки
+                        await this.page.waitForTimeout(1000);
+                    
+                    buttonClicked = await this.page.evaluate(() => {
+                        // Ищем кнопку "Start Trading" с onclick="javascript:seller_acknowledge(...)"
+                        const startTradingButtons = Array.from(document.querySelectorAll('a.progress_gr, a[onclick*="seller_acknowledge"], .rate__btns-item a'));
+                        const startTradingButton = startTradingButtons.find(btn => {
+                            const text = btn.textContent.toLowerCase().trim();
+                            const onclick = btn.getAttribute('onclick') || '';
+                            return (text.includes('start trading') || onclick.includes('seller_acknowledge'));
+                        });
+                        
+                        if (startTradingButton) {
+                            startTradingButton.click();
+                            return true;
+                        }
+                        
+                        // Если не нашли "Start Trading", ищем другие кнопки доставки
+                        const buttons = Array.from(document.querySelectorAll('a.list-action__btn-default, button, a[onclick*="deliver"], a[onclick*="confirm"]'));
+                        const deliverButton = buttons.find(btn => {
+                            const text = btn.textContent.toLowerCase().trim();
+                            const onclick = btn.getAttribute('onclick') || '';
+                            return text.includes('deliver') || 
+                                   text.includes('start delivery') ||
+                                   text.includes('confirm deliver') ||
+                                   onclick.includes('deliver') ||
+                                   onclick.includes('confirm_deliver');
+                        });
+                        if (deliverButton) {
+                            deliverButton.click();
+                            return true;
+                        }
+                        return false;
+                    });
+                    
+                    if (buttonClicked) {
+                        break; // Успешно нажали кнопку
+                    }
+                    } catch (e) {
+                    if (e.message.includes('Navigating frame was detached') || e.message.includes('Execution context was destroyed')) {
+                        console.log(`⚠️ Страница перезагрузилась при попытке ${attempt}, повторяем...`);
+                        // Перезагружаем страницу и пробуем снова
+                        if (attempt < maxRetries) {
+                            await this.page.goto(order.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                            await this.page.waitForTimeout(2000);
+                            continue;
+                        }
+                    } else {
+                        console.log(`⚠️ Ошибка при поиске кнопки для заказа №${order.orderId} (попытка ${attempt}):`, e.message);
+                    }
+                }
+            }
+            
+            if (buttonClicked) {
+                    await this.page.waitForTimeout(2000);
+                console.log(`✅ Заказ №${order.orderId} - нажата кнопка "Start Trading" (Preparing -> Delivering)`);
+            } else {
+                console.log(`⚠️ Кнопка "Start Trading" для заказа №${order.orderId} не найдена`);
+                console.log(`   💡 Возможно заказ уже в другом статусе или требует особой обработки`);
+                    }
+        } catch (error) {
+            console.error(`❌ Ошибка обработки Preparing заказа №${order.orderId}:`, error.message);
+        }
+    }
+
+    /**
+     * Получает список заказов со страницы с указанным статусом
+     */
+    async getOrdersByStatus(statusUrl, statusName) {
+        const maxRetries = 3;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await this.init();
+                console.log(`📋 Переход на страницу ${statusName} заказов... (попытка ${attempt}/${maxRetries})`);
+                await this.page.goto(statusUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                await this.page.waitForTimeout(3000);
+                
+                // Ждем загрузки таблицы
+            try {
+                await this.page.waitForSelector('table.sales-history__table', { timeout: 10000 });
+                    console.log('✅ Таблица загружена');
+            } catch (error) {
+                    console.log('⚠️ Таблица не найдена, возможно заказов нет');
+                    return [];
+                }
+
+                // Получаем список заказов с датами
+                const orders = await this.page.evaluate(() => {
+                    const orderList = [];
+                    const rows = document.querySelectorAll('table.sales-history__table tbody tr');
+                    
+                    rows.forEach((row) => {
+                            const orderLink = row.querySelector('a.sales-history__product-id');
+                            if (orderLink) {
+                            const orderText = orderLink.textContent || '';
+                            const orderMatch = orderText.match(/Sold order №(\d+)/);
+                                if (orderMatch) {
+                                const orderId = orderMatch[1];
+                                const dataUrl = row.querySelector('.clickable-row')?.getAttribute('data-url');
+                                
+                                // Извлекаем дату
+                                const dateCell = row.querySelector('td:first-child');
+                                const dateText = dateCell ? dateCell.textContent.trim() : '';
+                                
+                                if (dataUrl) {
+                                    orderList.push({
+                                orderId: orderId,
+                                        url: dataUrl,
+                                        date: dateText
+                                    });
+                                }
+                            }
+                        }
+                    });
+
+                    return orderList;
+                });
+
+                // Сортируем по дате (последний первым)
+                orders.sort((a, b) => {
+                    const dateA = new Date(a.date);
+                    const dateB = new Date(b.date);
+                    return dateB - dateA;
+                });
+
+                console.log(`📊 Найдено ${statusName} заказов: ${orders.length}`);
+                return orders;
+            } catch (error) {
+                if (error.message.includes('Navigating frame was detached') || error.message.includes('Execution context was destroyed')) {
+                    console.log(`⚠️ Страница перезагрузилась при получении ${statusName} заказов (попытка ${attempt}), повторяем...`);
+                    if (attempt < maxRetries) {
+                            await this.page.waitForTimeout(2000);
+                        continue;
+                    }
+                }
+                console.error(`❌ Ошибка получения ${statusName} заказов (попытка ${attempt}):`, error.message);
+                if (attempt === maxRetries) {
+                    // На последней попытке возвращаем пустой массив вместо throw
+                    console.log(`⚠️ Не удалось получить ${statusName} заказы после ${maxRetries} попыток, возвращаем пустой массив`);
+                    return [];
+                }
+            }
+        }
+        return [];
+    }
+
+    /**
+     * Получает список заказов со страницы DELIVERING (status=1)
+     */
+    async getDeliveringOrders() {
+        return await this.getOrdersByStatus(this.deliveringUrl, 'DELIVERING');
+    }
+
+    /**
+     * Получает список заказов со страницы DELIVERED (status=2)
+     */
+    async getDeliveredOrders() {
+        return await this.getOrdersByStatus(this.deliveredUrl, 'DELIVERED');
+    }
+
+    /**
+     * Получает список заказов со страницы COMPLETED (status=3)
+     */
+    async getCompletedOrders() {
+        return await this.getOrdersByStatus(this.completedUrl, 'COMPLETED');
+    }
+
+    /**
+     * Получает список заказов со страницы CANCELLED (status=0)
+     */
+    async getCancelledOrders() {
+        return await this.getOrdersByStatus(this.cancelledUrl, 'CANCELLED');
     }
 
     /**
@@ -303,16 +725,16 @@ class G2GScraper {
                     
                     await this.page.goto(orderUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
                     await this.page.waitForTimeout(2000);
-
+            
             const orderData = await this.page.evaluate(() => {
                 const data = {};
-
+                
                 // Номер заказа
                 const orderNumElement = document.querySelector('.trade__order__top-num');
                 if (orderNumElement) {
                     const orderText = orderNumElement.textContent || '';
                     const orderMatch = orderText.match(/Sold order\s*№(\d+)/);
-                            if (orderMatch) {
+                    if (orderMatch) {
                         data.orderId = orderMatch[1];
                     }
                     const purchaseMatch = orderText.match(/Purchase order\s*№(\d+)/);
@@ -358,7 +780,7 @@ class G2GScraper {
                         const typeTooltip = typeCell.querySelector('.tooltip__content');
                         if (typeTooltip) {
                             data.type = typeTooltip.textContent.trim();
-                            } else {
+                    } else {
                             // Альтернативный способ
                             const typeIcon = typeCell.querySelector('.g2g-icon');
                             if (typeIcon) {
@@ -431,7 +853,7 @@ class G2GScraper {
 
             console.log(`✅ Данные заказа №${orderId} извлечены`);
             return orderData;
-                } catch (error) {
+        } catch (error) {
             console.error(`❌ Ошибка парсинга заказа №${orderId}:`, error.message);
             return null;
         }
@@ -442,38 +864,78 @@ class G2GScraper {
      */
     async processAllOrders(onOrderParsed) {
         try {
-            // 1. Обрабатываем PREPARING заказы - переводим в DELIVERING
-            console.log('📋 Шаг 1: Обработка PREPARING заказов...');
+            // 0. Загружаем список обработанных заказов
+            await this.loadProcessedOrders();
+            
+            // 1. Обрабатываем NEW ORDER заказы - переводим в PREPARING, затем в DELIVERING (только новые)
+            console.log('📋 Шаг 1: Обработка NEW ORDER заказов (только новых)...');
+            await this.processNewOrders();
+            
+            // 2. Обрабатываем PREPARING заказы - переводим в DELIVERING
+            console.log('📋 Шаг 2: Обработка PREPARING заказов...');
             await this.processPreparingOrders();
 
-            // 2. Получаем список DELIVERING заказов
-            console.log('📋 Шаг 2: Получение списка DELIVERING заказов...');
+            // 3. Получаем список всех заказов с разными статусами для обновления меток
+            console.log('📋 Шаг 3: Получение списка заказов для обновления меток...');
+            const allOrders = [];
+            
+            // DELIVERING заказы
             const deliveringOrders = await this.getDeliveringOrders();
+            for (const order of deliveringOrders) {
+                allOrders.push({ ...order, targetStatus: 'Delivering' });
+            }
+            
+            // DELIVERED заказы
+            const deliveredOrders = await this.getDeliveredOrders();
+            for (const order of deliveredOrders) {
+                allOrders.push({ ...order, targetStatus: 'Delivered' });
+            }
+            
+            // COMPLETED заказы
+            const completedOrders = await this.getCompletedOrders();
+            for (const order of completedOrders) {
+                allOrders.push({ ...order, targetStatus: 'Completed' });
+            }
+            
+            // CANCELLED заказы
+            const cancelledOrders = await this.getCancelledOrders();
+            for (const order of cancelledOrders) {
+                allOrders.push({ ...order, targetStatus: 'Cancelled' });
+            }
 
-            if (deliveringOrders.length === 0) {
-                console.log('📊 DELIVERING заказов не найдено');
+            if (allOrders.length === 0) {
+                console.log('📊 Заказов не найдено');
                 return [];
             }
 
-            // 3. Обрабатываем каждый заказ, начиная с последнего по дате
-            console.log(`📋 Шаг 3: Обработка ${deliveringOrders.length} DELIVERING заказов...`);
+            // 4. Обрабатываем каждый заказ, начиная с последнего по дате
+            console.log(`📋 Шаг 4: Обработка ${allOrders.length} заказов (включая обновление меток)...`);
             const processedOrders = [];
 
-            for (const order of deliveringOrders) {
+            for (const order of allOrders) {
                 try {
                     const orderData = await this.parseOrderDetails(order.orderId);
                     
                     if (orderData && orderData.orderId) {
+                        // ВСЕГДА используем targetStatus из страницы статуса, а не из parseOrderDetails
+                        // Это гарантирует, что метка будет соответствовать странице, на которой находится заказ
+                        if (order.targetStatus) {
+                            orderData.status = order.targetStatus;
+                            console.log(`📋 Заказ №${order.orderId}: статус установлен на "${order.targetStatus}" (из страницы статуса)`);
+                        } else if (orderData.status) {
+                            console.log(`📋 Заказ №${order.orderId}: используется статус из parseOrderDetails: "${orderData.status}"`);
+                        }
+                        
                         processedOrders.push(orderData);
                         
-                        // Вызываем callback для создания карточки в Trello
+                        // Вызываем callback для создания/обновления карточки в Trello
                         if (onOrderParsed && typeof onOrderParsed === 'function') {
                             try {
                                 const result = await onOrderParsed(orderData);
                                 if (result) {
-                                    console.log(`✅ Карточка Trello создана для заказа №${order.orderId}`);
-                                } else {
-                                    console.log(`⚠️ Не удалось создать карточку для заказа №${order.orderId}`);
+                                    console.log(`✅ Карточка Trello обновлена для заказа №${order.orderId} (статус: ${orderData.status})`);
+            } else {
+                                    console.log(`⚠️ Не удалось обновить карточку для заказа №${order.orderId}`);
                                 }
                             } catch (callbackError) {
                                 console.error(`❌ Ошибка в callback для заказа №${order.orderId}:`, callbackError.message);
@@ -535,7 +997,7 @@ class G2GScraper {
             const url = this.page.url();
             return !url.includes('/login');
             } catch (e) {
-            return false;
+                return false;
         }
     }
 
@@ -557,7 +1019,7 @@ class G2GScraper {
 
     async startDeliveryForOrder(orderId) {
             return false;
-        }
+            }
 
     async extractAccountDataFromChat(chatUrl) {
         return null;

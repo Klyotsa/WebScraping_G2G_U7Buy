@@ -1,0 +1,43 @@
+[Unit]
+Description=G2G Trello Scraper (Node.js)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/g2g-scraper
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/g2g-scraper/.env
+
+# Команда запуска
+ExecStart=/usr/bin/xvfb-run -a -s '-screen 0 1920x1080x24' /usr/bin/node /opt/g2g-scraper/index.js
+
+# Автоматический перезапуск при сбоях
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Обработка сигналов
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=30
+
+# Ограничения ресурсов (опционально, можно настроить под ваши нужды)
+# MemoryMax=2G
+# CPUQuota=200%
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=g2g-scraper
+
+# Безопасность
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+

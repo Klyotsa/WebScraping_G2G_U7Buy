@@ -21,7 +21,224 @@ class TrelloService {
     }
 
     /**
+     * Извлекает все услуги из названия продукта
+     * Возвращает массив объектов {service, console, quantity, category}
+     */
+    extractServicesFromProductName(productName) {
+        if (!productName) return [];
+        
+        const services = [];
+        const productNameUpper = productName.toUpperCase();
+        
+        // Определяем консоль
+        let console = 'UNKNOWN';
+        if (productNameUpper.includes('XBOX XS') || productNameUpper.includes('XBOX SERIES')) {
+            console = 'XBOX XS';
+        } else if (productNameUpper.includes('XBOX ONE')) {
+            console = 'XBOX ONE';
+        } else if (productNameUpper.includes('PS5') || productNameUpper.includes('PLAYSTATION 5')) {
+            console = 'PS5';
+        } else if (productNameUpper.includes('PS4') || productNameUpper.includes('PLAYSTATION 4')) {
+            console = 'PS4';
+        }
+        
+        // 1. GTA 5 PACKAGE
+        if (productNameUpper.includes('GTA 5 PACKAGE') || productNameUpper.includes('GTA5 PACKAGE')) {
+            services.push({
+                service: 'GTA 5 PACKAGE',
+                console: console,
+                quantity: '',
+                category: 'GTA 5 PACKAGE'
+            });
+        }
+        
+        // 2. MODDED OUTFITS / OUTFITS (но не если уже есть GTA 5 PACKAGE)
+        const outfitsMatch = productNameUpper.match(/([A-Z\s]+?)\s*(MODDED\s+)?OUTFITS?/i);
+        if (outfitsMatch && !productNameUpper.includes('GTA 5 PACKAGE')) {
+            const fullMatch = productNameUpper.match(/(.+?)\s*(MODDED\s+)?OUTFITS?/i);
+            if (fullMatch) {
+                let wordsBefore = fullMatch[1].trim();
+                const outfitWord = productNameUpper.match(/OUTFITS?/i)?.[0]?.toUpperCase() || 'OUTFITS';
+                
+                wordsBefore = wordsBefore
+                    .replace(/^\[?PS5\]?\s*/i, '')
+                    .replace(/^\[?PS4\]?\s*/i, '')
+                    .replace(/^\[?XBOX\s+XS\]?\s*/i, '')
+                    .replace(/^\[?XBOX\s+ONE\]?\s*/i, '')
+                    .replace(/^\[?XBOX\s+SERIES\]?\s*/i, '')
+                    .replace(/^TRIO\s+OF\s+/i, 'TRIO OF ')
+                    .replace(/^MODDED\s+/i, '')
+                    .trim();
+                
+                let category = wordsBefore && wordsBefore.length > 0 
+                    ? `${wordsBefore.toUpperCase()} ${outfitWord}`
+                    : `MODDED ${outfitWord}`;
+                
+                services.push({
+                    service: category,
+                    console: console,
+                    quantity: '',
+                    category: category
+                });
+            }
+        }
+        
+        // 3. MODDED CARS / CARS (но НЕ CASH + CARS)
+        const isCashAndCars = productNameUpper.includes('CASH') && productNameUpper.includes('CARS');
+        if (!isCashAndCars) {
+            const carsMatch = productNameUpper.match(/([A-Z\s]+?)\s*(MODDED\s+)?CARS?/i);
+            if (carsMatch) {
+                const fullMatch = productNameUpper.match(/(.+?)\s*(MODDED\s+)?CARS?/i);
+                if (fullMatch) {
+                    let wordsBefore = fullMatch[1].trim();
+                    const carWord = productNameUpper.match(/CARS?/i)?.[0]?.toUpperCase() || 'CARS';
+                    
+                    wordsBefore = wordsBefore
+                        .replace(/^\[?PS5\]?\s*/i, '')
+                        .replace(/^\[?PS4\]?\s*/i, '')
+                        .replace(/^\[?XBOX\s+XS\]?\s*/i, '')
+                        .replace(/^\[?XBOX\s+ONE\]?\s*/i, '')
+                        .replace(/^\[?XBOX\s+SERIES\]?\s*/i, '')
+                        .replace(/^MODDED\s+/i, '')
+                        .trim();
+                    
+                    let category = wordsBefore && wordsBefore.length > 0 
+                        ? `${wordsBefore.toUpperCase()} ${carWord}`
+                        : `MODDED ${carWord}`;
+                    
+                    services.push({
+                        service: category,
+                        console: console,
+                        quantity: '',
+                        category: category
+                    });
+                }
+            }
+        }
+        
+        // 4. FULL BUNKER UNLOCK
+        if (productNameUpper.includes('FULL BUNKER UNLOCK') || productNameUpper.includes('BUNKER UNLOCK')) {
+            services.push({
+                service: 'FULL BUNKER UNLOCK',
+                console: console,
+                quantity: '',
+                category: 'FULL BUNKER UNLOCK'
+            });
+        }
+        
+        // 5. Rank / RANK BOOST
+        const hasRank = productNameUpper.includes('RANK') || productNameUpper.includes('RANK BOOST');
+        if (hasRank) {
+            let quantity = '';
+            const rankRangeMatch = productNameUpper.match(/(\d+)\s*[–-]\s*(\d+)\s*(RANK|BOOST)/i) || 
+                                   productNameUpper.match(/(RANK|BOOST)\s*(\d+)\s*[–-]\s*(\d+)/i);
+            if (rankRangeMatch) {
+                if (rankRangeMatch[3] && rankRangeMatch[1] && rankRangeMatch[2]) {
+                    quantity = rankRangeMatch[1] === 'RANK' || rankRangeMatch[1] === 'BOOST' 
+                        ? `${rankRangeMatch[2]}-${rankRangeMatch[3]}`
+                        : `${rankRangeMatch[1]}-${rankRangeMatch[2]}`;
+                } else {
+                    quantity = `${rankRangeMatch[1]}-${rankRangeMatch[2]}`;
+                }
+            } else {
+                const rankQtyMatch = productNameUpper.match(/(\d+)\s*(RANK|BOOST)/i) || 
+                                     productNameUpper.match(/(RANK|BOOST)\s*(\d+)/i);
+                if (rankQtyMatch) {
+                    quantity = rankQtyMatch[1] === 'RANK' || rankQtyMatch[1] === 'BOOST' 
+                        ? rankQtyMatch[2] 
+                        : rankQtyMatch[1];
+                }
+            }
+            
+            if (quantity) {
+                services.push({
+                    service: `Rank ${quantity}`,
+                    console: console,
+                    quantity: quantity,
+                    category: 'Rank'
+                });
+            }
+        }
+        
+        // 6. LVL / LEVEL
+        const hasLVL = productNameUpper.includes('LVL') || productNameUpper.includes('LEVEL');
+        if (hasLVL) {
+            let quantity = '';
+            const lvlQtyMatch = productNameUpper.match(/(\d+)\s*(LVL|LEVEL)/i) || 
+                               productNameUpper.match(/(LVL|LEVEL)\s*(\d+)/i);
+            if (lvlQtyMatch) {
+                quantity = lvlQtyMatch[1] === 'LVL' || lvlQtyMatch[1] === 'LEVEL' 
+                    ? lvlQtyMatch[2] 
+                    : lvlQtyMatch[1];
+            }
+            
+            if (quantity) {
+                services.push({
+                    service: `LVL ${quantity}`,
+                    console: console,
+                    quantity: quantity,
+                    category: 'LVL'
+                });
+            }
+        }
+        
+        // 7. CASH + CARS или ONLY CASH
+        if (productNameUpper.includes('CASH')) {
+            let quantity = '';
+            const qtyMatch = productNameUpper.match(/(\d+[MK]?)\s*M/i);
+            if (qtyMatch) {
+                quantity = qtyMatch[1];
+            } else {
+                const altQtyMatch = productNameUpper.match(/(\d+[MK]?)\s*(CASH|MONEY)/i);
+                if (altQtyMatch) {
+                    quantity = altQtyMatch[1];
+                } else {
+                    const numberMatch = productNameUpper.match(/(\d+)\s*(CASH|CARS)/i);
+                    if (numberMatch) {
+                        quantity = numberMatch[1];
+                    }
+                }
+            }
+            
+            if (quantity && !quantity.toUpperCase().endsWith('M') && !quantity.toUpperCase().endsWith('K')) {
+                quantity = quantity + 'M';
+            }
+            
+            if (quantity) {
+                if (productNameUpper.includes('CASH') && productNameUpper.includes('CARS')) {
+                    services.push({
+                        service: `CASH + CARS`,
+                        console: console,
+                        quantity: quantity,
+                        category: 'CASH + CARS'
+                    });
+                } else if (productNameUpper.includes('CASH') && !productNameUpper.includes('CARS')) {
+                    services.push({
+                        service: `ONLY CASH`,
+                        console: console,
+                        quantity: quantity,
+                        category: 'ONLY CASH'
+                    });
+                }
+            }
+        }
+        
+        // Если не найдено ни одной услуги, возвращаем одну услугу с оригинальным названием
+        if (services.length === 0) {
+            services.push({
+                service: productName,
+                console: console,
+                quantity: '',
+                category: 'UNKNOWN'
+            });
+        }
+        
+        return services;
+    }
+
+    /**
      * Создает карточку в Trello из заказа
+     * Если в заказе несколько услуг, создает отдельную карточку для каждой
      */
     async createCardFromOrder(order) {
         if (!this.isConfigured()) {
@@ -35,31 +252,61 @@ class TrelloService {
                 return false;
             }
             
-            console.log(`🔍 [TRELLO] Проверка существования карточки для заказа №${order.orderId}...`);
-            // Сначала проверяем, есть ли уже карточка с таким ID заказа
-            const existingCard = await this.findCardByOrderId(order.orderId);
+            // Извлекаем все услуги из названия продукта
+            const services = this.extractServicesFromProductName(order.productName);
+            console.log(`🔍 [TRELLO] Найдено услуг в заказе №${order.orderId}: ${services.length}`);
+            
+            let allCardsCreated = true;
+            
+            // Создаем карточку для каждой услуги
+            for (let i = 0; i < services.length; i++) {
+                const service = services[i];
+                const serviceOrderId = services.length > 1 ? `${order.orderId}-${i + 1}` : order.orderId;
+                
+                console.log(`📝 [TRELLO] Обработка услуги ${i + 1}/${services.length} для заказа №${order.orderId}: ${service.service}`);
+                
+                // Проверяем, есть ли уже карточка для этой услуги
+                // Сначала ищем по serviceOrderId, затем по оригинальному orderId + услуге
+                let existingCard = await this.findCardByOrderId(serviceOrderId);
+                
+                // Если не нашли по serviceOrderId и это заказ с несколькими услугами, ищем по оригинальному orderId + услуге
+                if (!existingCard && services.length > 1) {
+                    existingCard = await this.findCardByOrderIdAndService(order.orderId, service);
+                }
             
             if (existingCard) {
-                console.log(`✅ [TRELLO] Карточка для заказа №${order.orderId} уже существует (ID: ${existingCard.id}), обновляем...`);
-                // Обновляем существующую карточку
-                const updateResult = await this.updateExistingCard(existingCard.id, order);
-                if (updateResult) {
-                    console.log(`✅ [TRELLO] Карточка для заказа №${order.orderId} успешно обновлена`);
-                } else {
-                    console.log(`⚠️ [TRELLO] Не удалось обновить карточку для заказа №${order.orderId}`);
-                }
-                return updateResult;
+                    console.log(`✅ [TRELLO] Карточка для услуги ${service.service} заказа №${order.orderId} уже существует, обновляем...`);
+                    const updateResult = await this.updateExistingCard(existingCard.id, order, service);
+                    if (!updateResult) {
+                        allCardsCreated = false;
+                    }
             } else {
-                // Создаем новую карточку
-                console.log(`📝 [TRELLO] Карточка для заказа №${order.orderId} не найдена, создаем новую...`);
-                console.log(`   - Название: ${this.buildCardTitle(order)}`);
+                    // Проверяем статус заказа - создаем карточки только для статуса "Delivering"
+                    const orderStatus = (order.status || '').toUpperCase();
+                    const allowedStatuses = ['DELIVERING'];
+                    const forbiddenStatuses = ['COMPLETED', 'DELIVERED', 'ISSUES', 'CANCELLED', 'CANCEL REQUESTED', 'CANCEL REQUEST'];
+                    
+                    // Проверяем, является ли статус запрещенным
+                    const isForbiddenStatus = forbiddenStatuses.some(status => orderStatus.includes(status));
+                    // Проверяем, является ли статус разрешенным
+                    const isAllowedStatus = allowedStatuses.some(status => orderStatus.includes(status));
+                    
+                    if (isForbiddenStatus || (!isAllowedStatus && orderStatus)) {
+                        console.log(`⚠️ [TRELLO] Карточка для услуги ${service.service} заказа №${order.orderId} не будет создана. Статус "${order.status}" не позволяет создавать новые карточки. Создание карточек разрешено только для статуса "Delivering".`);
+                        allCardsCreated = false;
+                        continue; // Пропускаем создание карточки для этого статуса
+                    }
+                    
+                    // Создаем новую карточку для услуги (только для статуса Delivering)
+                    const cardTitle = this.buildCardTitleFromService(service);
+                    console.log(`   - Название карточки: ${cardTitle}`);
                 console.log(`   - Список ID: ${this.listId}`);
                 console.log(`   - Статус: ${order.status || 'UNKNOWN'}`);
 
                 const cardData = {
-                    name: this.buildCardTitle(order),
+                        name: cardTitle,
                     idList: this.listId,
-                    desc: this.buildCardDescription(order),
+                        desc: this.buildCardDescription(order, service, serviceOrderId),
                     key: this.apiKey,
                     token: this.apiToken
                 };
@@ -68,21 +315,22 @@ class TrelloService {
                 const response = await axios.post(`${this.baseUrl}/cards`, cardData);
 
                 if (response.status === 200 || response.status === 201) {
-                    console.log(`✅ [TRELLO] Карточка Trello создана успешно для заказа №${order.orderId}`);
+                        console.log(`✅ [TRELLO] Карточка Trello создана успешно для услуги ${service.service} заказа №${order.orderId}`);
                     console.log(`   - ID карточки: ${response.data.id}`);
                     console.log(`   - Название: ${response.data.name}`);
-                    
-                    // Присваиваем метку по статусу заказа
-                    if (order.status) {
-                        await this.assignLabelToCardByStatus(response.data.id, order.status);
-                    }
-                    
-                    return true;
+                        
+                        // Присваиваем метку по статусу заказа
+                        if (order.status) {
+                            await this.assignLabelToCardByStatus(response.data.id, order.status);
+                        }
                 } else {
-                    console.error(`❌ [TRELLO] Ошибка создания карточки Trello для заказа №${order.orderId}: статус ${response.status}`);
-                    return false;
+                        console.error(`❌ [TRELLO] Ошибка создания карточки Trello для услуги ${service.service} заказа №${order.orderId}: статус ${response.status}`);
+                        allCardsCreated = false;
+                    }
                 }
             }
+            
+            return allCardsCreated;
 
         } catch (error) {
             console.error(`❌ [TRELLO] Исключение при работе с карточкой Trello для заказа №${order?.orderId || 'UNKNOWN'}:`, error.message);
@@ -95,7 +343,32 @@ class TrelloService {
     }
 
         /**
+     * Строит название карточки из услуги
+     */
+    buildCardTitleFromService(service) {
+        if (!service || service.console === 'UNKNOWN') {
+            return service?.service || 'UNKNOWN';
+        }
+        
+        if (service.category === 'Rank' || service.category === 'LVL') {
+            return `[${service.console}] ${service.quantity} ${service.category}`;
+        }
+        
+        // Для FULL BUNKER UNLOCK и других услуг без количества
+        if (service.category === 'FULL BUNKER UNLOCK' || service.category === 'GTA 5 PACKAGE') {
+            return `[${service.console}] ${service.category}`;
+        }
+        
+        if (service.quantity) {
+            return `[${service.console}] ${service.quantity} ${service.category}`;
+        }
+        
+        return `[${service.console}] ${service.category}`;
+    }
+
+        /**
          * Строит название карточки в формате [CONSOLE] QUANTITY CATEGORY
+         * @deprecated Используйте buildCardTitleFromService для работы с отдельными услугами
          */
         buildCardTitle(order) {
             // Используем название продукта из парсированных данных
@@ -152,7 +425,7 @@ class TrelloService {
                         
                         if (wordsBefore && wordsBefore.length > 0) {
                             category = `${wordsBefore.toUpperCase()} ${outfitWord}`;
-                        } else {
+                    } else {
                             category = `MODDED ${outfitWord}`;
                         }
                         quantity = ''; // Не нужно количество
@@ -301,9 +574,17 @@ class TrelloService {
     /**
      * Строит описание карточки
      */
-        buildCardDescription(order) {
+        buildCardDescription(order, service = null, serviceOrderId = null) {
             let desc = `Источник: G2G\n`;
-            desc += `ID заказа: ${order.orderId || 'UNKNOWN'}\n`;
+            desc += `ID заказа: ${serviceOrderId || order.orderId || 'UNKNOWN'}\n`;
+            
+            // Если это одна из нескольких услуг, указываем это
+            if (service) {
+                desc += `Услуга: ${service.service}\n`;
+                if (serviceOrderId && serviceOrderId !== order.orderId) {
+                    desc += `Оригинальный ID заказа: ${order.orderId}\n`;
+                }
+            }
             
             if (order.purchaseOrderId) {
                 desc += `Purchase Order ID: ${order.purchaseOrderId}\n`;
@@ -475,6 +756,7 @@ class TrelloService {
 
     /**
      * Присваивает метку карточке по статусу заказа
+     * Удаляет все старые метки статуса и добавляет новую
      */
     async assignLabelToCardByStatus(cardId, orderStatus) {
         if (!this.isConfigured() || !cardId) {
@@ -507,30 +789,61 @@ class TrelloService {
 
             const currentLabelIds = cardResponse.data.idLabels || [];
             
-            // Проверяем, не присвоена ли уже эта метка
-            if (currentLabelIds.includes(label.id)) {
-                console.log(`✅ [TRELLO] Метка "${labelName}" уже присвоена карточке ${cardId}`);
-                return true;
-            }
+            // Получаем все метки статуса на доске
+            const allStatusLabels = await this.getBoardLabels();
+            const statusLabelNames = ['DELIVERING', 'CANCEL REQUESTED', 'DELIVERED', 'COMPLETED', 'CANCELLED'];
+            const statusLabelIds = allStatusLabels
+                .filter(l => statusLabelNames.includes(l.name))
+                .map(l => l.id);
+            
+            // Удаляем все старые метки статуса (оставляем только не-статусные метки)
+            const nonStatusLabelIds = currentLabelIds.filter(id => !statusLabelIds.includes(id));
+            
+            // Формируем новый список меток: не-статусные метки + новая метка статуса
+            const newLabelIds = [...nonStatusLabelIds, label.id];
+            
+            // Проверяем текущие метки статуса
+            const currentStatusLabelIds = currentLabelIds.filter(id => statusLabelIds.includes(id));
+            
+            // ВСЕГДА обновляем метки, если:
+            // 1. Нет нужной метки статуса
+            // 2. Есть несколько меток статуса (должна быть только одна)
+            // 3. Текущая метка статуса отличается от нужной
+            // 4. Есть хотя бы одна метка статуса, которая не является нужной
+            const hasWrongStatusLabel = currentStatusLabelIds.some(id => id !== label.id);
+            const needsUpdate = !currentStatusLabelIds.includes(label.id) || 
+                               currentStatusLabelIds.length > 1 || 
+                               hasWrongStatusLabel;
+            
+            if (needsUpdate) {
+                // ВСЕГДА обновляем метки: удаляем все старые метки статуса, добавляем новую
+                console.log(`🔄 [TRELLO] Обновление меток для карточки ${cardId}: удаление ${currentStatusLabelIds.length} старых меток, установка "${labelName}"`);
+                
+                const updateResponse = await axios.put(`${this.baseUrl}/cards/${cardId}/idLabels`, null, {
+                    params: {
+                        key: this.apiKey,
+                        token: this.apiToken,
+                        value: newLabelIds.join(',')
+                    }
+                });
 
-            // Добавляем новую метку к существующим
-            const newLabelIds = [...currentLabelIds, label.id];
-
-            // Обновляем метки карточки
-            const updateResponse = await axios.put(`${this.baseUrl}/cards/${cardId}/idLabels`, null, {
-                params: {
-                    key: this.apiKey,
-                    token: this.apiToken,
-                    value: newLabelIds.join(',')
+                if (updateResponse.status === 200) {
+                    if (currentStatusLabelIds.length > 1) {
+                        console.log(`✅ [TRELLO] Удалены ${currentStatusLabelIds.length} старых меток статуса, установлена "${labelName}" для карточки ${cardId}`);
+                    } else if (!currentStatusLabelIds.includes(label.id)) {
+                        console.log(`✅ [TRELLO] Заменена метка статуса на "${labelName}" для карточки ${cardId}`);
+                    } else {
+                        console.log(`✅ [TRELLO] Обновлена метка статуса "${labelName}" для карточки ${cardId}`);
+                    }
+                    return true;
+                } else {
+                    console.error(`❌ [TRELLO] Ошибка обновления метки "${labelName}": статус ${updateResponse.status}`);
+                    return false;
                 }
-            });
-
-            if (updateResponse.status === 200) {
-                console.log(`✅ [TRELLO] Метка "${labelName}" успешно присвоена карточке ${cardId}`);
-                return true;
             } else {
-                console.error(`❌ [TRELLO] Ошибка присвоения метки "${labelName}": статус ${updateResponse.status}`);
-                return false;
+                // Метка уже правильная и единственная
+                console.log(`✅ [TRELLO] Метка "${labelName}" уже установлена и единственная для карточки ${cardId}`);
+                return true;
             }
         } catch (error) {
             console.error(`❌ [TRELLO] Ошибка присвоения метки карточке ${cardId}:`, error.message);
@@ -653,6 +966,7 @@ class TrelloService {
 
     /**
      * Находит существующую карточку по ID заказа
+     * Ищет по всей доске Trello, а не только в одном списке
      */
     async findCardByOrderId(orderId) {
         if (!this.isConfigured()) {
@@ -660,11 +974,12 @@ class TrelloService {
         }
 
         try {
-            // Получаем все карточки в списке
-            const response = await axios.get(`https://api.trello.com/1/lists/${this.listId}/cards`, {
+            // Получаем все карточки на доске (не только в одном списке)
+            const response = await axios.get(`${this.baseUrl}/boards/${this.boardId}/cards`, {
                 params: {
                     key: this.apiKey,
-                    token: this.apiToken
+                    token: this.apiToken,
+                    fields: 'id,name,desc,idList'
                 }
             });
 
@@ -672,14 +987,68 @@ class TrelloService {
                 // Ищем карточку с нужным ID заказа в описании
                 const cards = response.data;
                 for (const card of cards) {
-                    if (card.desc && card.desc.includes(`ID заказа: ${orderId}`)) {
-                        console.log(`🔍 Найдена существующая карточка для заказа ${orderId}: ${card.id}`);
-                        return card;
+                    if (card.desc) {
+                        // Ищем по точному совпадению "ID заказа: orderId"
+                        if (card.desc.includes(`ID заказа: ${orderId}`)) {
+                            console.log(`🔍 Найдена существующая карточка для заказа ${orderId} на всей доске: ${card.id} (список: ${card.idList})`);
+                            return card;
+                        }
+                        // Также ищем по "Оригинальный ID заказа: orderId" для заказов с несколькими услугами
+                        if (card.desc.includes(`Оригинальный ID заказа: ${orderId}`)) {
+                            console.log(`🔍 Найдена существующая карточка для заказа ${orderId} (по оригинальному ID) на всей доске: ${card.id} (список: ${card.idList})`);
+                            return card;
+                        }
                     }
                 }
             }
         } catch (error) {
-            console.error('❌ Ошибка поиска карточки:', error.message);
+            console.error('❌ Ошибка поиска карточки по всей доске:', error.message);
+        }
+        
+        return null;
+    }
+
+    /**
+     * Находит существующую карточку по оригинальному ID заказа и услуге
+     * Ищет по всей доске Trello, а не только в одном списке
+     */
+    async findCardByOrderIdAndService(orderId, service) {
+        if (!this.isConfigured()) {
+            return null;
+        }
+
+        try {
+            // Получаем все карточки на доске (не только в одном списке)
+            const response = await axios.get(`${this.baseUrl}/boards/${this.boardId}/cards`, {
+                params: {
+                    key: this.apiKey,
+                    token: this.apiToken,
+                    fields: 'id,name,desc,idList'
+                }
+            });
+
+            if (response.status === 200) {
+                const cards = response.data;
+                const serviceTitle = this.buildCardTitleFromService(service);
+                
+                for (const card of cards) {
+                    if (card.desc) {
+                        // Проверяем, что карточка относится к этому заказу
+                        const hasOrderId = card.desc.includes(`Оригинальный ID заказа: ${orderId}`) || 
+                                          card.desc.includes(`ID заказа: ${orderId}`);
+                        
+                        // Проверяем, что название карточки совпадает с названием услуги
+                        const hasServiceTitle = card.name === serviceTitle;
+                        
+                        if (hasOrderId && hasServiceTitle) {
+                            console.log(`🔍 Найдена существующая карточка для заказа ${orderId} и услуги "${service.service}" на всей доске: ${card.id} (список: ${card.idList})`);
+                            return card;
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('❌ Ошибка поиска карточки по заказу и услуге на всей доске:', error.message);
         }
         
         return null;
@@ -688,7 +1057,7 @@ class TrelloService {
     /**
      * Обновляет существующую карточку
      */
-    async updateExistingCard(cardId, order) {
+    async updateExistingCard(cardId, order, service = null) {
         if (!this.isConfigured()) {
             return false;
         }
@@ -696,8 +1065,16 @@ class TrelloService {
         try {
             console.log('📝 Обновление существующей карточки Trello:', cardId);
 
-            const cardName = this.buildCardTitle(order);
-            const cardDescription = this.buildCardDescription(order);
+            // Если есть услуга, используем её для построения названия
+            let cardName, cardDescription;
+            if (service) {
+                cardName = this.buildCardTitleFromService(service);
+                const serviceOrderId = order.orderId; // Можно улучшить, если нужно
+                cardDescription = this.buildCardDescription(order, service, serviceOrderId);
+            } else {
+                cardName = this.buildCardTitle(order);
+                cardDescription = this.buildCardDescription(order);
+            }
 
             const response = await axios.put(`https://api.trello.com/1/cards/${cardId}`, null, {
                 params: {
@@ -712,9 +1089,12 @@ class TrelloService {
             if (response.status === 200) {
                 console.log('✅ Карточка Trello обновлена успешно:', cardId);
                 
-                // Присваиваем метку по статусу заказа
+                // ВСЕГДА обновляем метку по статусу заказа при обновлении карточки
                 if (order.status) {
+                    console.log(`🏷️ [TRELLO] Обновление метки статуса для карточки ${cardId}: ${order.status}`);
                     await this.assignLabelToCardByStatus(cardId, order.status);
+                } else {
+                    console.log(`⚠️ [TRELLO] Статус заказа не указан для карточки ${cardId}`);
                 }
                 
                 return true;
